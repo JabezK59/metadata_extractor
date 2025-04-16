@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>File Metadata Extractor</title>
+    <!-- Load exif-js for image metadata -->
+    <script src="https://cdn.jsdelivr.net/npm/exif-js@2.3.0/exif.min.js"></script>
+    <!-- Load pdf.js for PDF metadata -->
+    <script src="https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.min.js"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background-color: #f4f4f9;
+            margin: 0;
+            padding: 0;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+        }
+
+        .container {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+            width: 90%;
+            max-width: 600px;
+            text-align: center;
+        }
+
+        h1 {
+            color: #333;
+            margin-bottom: 20px;
+        }
+
+        .input-section {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            margin-bottom: 20px;
+        }
+
+        input[type="file"] {
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-size: 16px;
+        }
+
+        button {
+            padding: 10px 20px;
+            background-color: #24292e;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 16px;
+        }
+
+        button:hover {
+            background-color: #1a1f24;
+        }
+
+        .result {
+            text-align: left;
+            padding: 15px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            background-color: #fafafa;
+            min-height: 100px;
+        }
+
+        .error {
+            color: red;
+        }
+
+        .metadata-section {
+            margin-bottom: 15px;
+            padding: 10px;
+            border-bottom: 1px solid #eee;
+        }
+
+        @media (max-width: 500px) {
+            .container {
+                padding: 15px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>File Metadata Extractor</h1>
+        <div class="input-section">
+            <input type="file" id="fileInput" accept=".jpg,.jpeg,.png,.pdf,.mp4,.mov" multiple>
+            <button onclick="extractMetadata()">Extract Metadata</button>
+        </div>
+        <div id="result" class="result"></div>
+    </div>
+    <script>
+        async function extractMetadata() {
+            const fileInput = document.getElementById('fileInput');
+            const resultDiv = document.getElementById('result');
+            const files = fileInput.files;
+
+            if (files.length === 0) {
+                resultDiv.innerHTML = '<p class="error">Please select at least one file.</p>';
+                return;
+            }
+
+            resultDiv.innerHTML = 'Extracting metadata...';
+
+            try {
+                let output = '';
+                for (const file of files) {
+                    const extension = file.name.toLowerCase().split('.').pop();
+                    output += `<div class="metadata-section"><h3>${file.name}</h3>`;
+
+                    if (['jpg', 'jpeg', 'png'].includes(extension)) {
+                        // Image metadata (EXIF)
+                        const reader = new FileReader();
+                        await new Promise(resolve => {
+                            reader.onload = function(e) {
+                                EXIF.getData(file, function() {
+                                    const allMetaData = EXIF.getAllTags(this);
+                                    if (Object.keys(allMetaData).length === 0) {
+                                        output += '<p>No EXIF metadata found.</p>';
+                                    } else {
+                                        output += `
+                                            <p><strong>File Type:</strong> Image</p>
+                                            <p><strong>Date Taken:</strong> ${allMetaData.DateTimeOriginal || 'N/A'}</p>
+                                            <p><strong>Camera Model:</strong> ${allMetaData.Model || 'N/A'}</p>
+                                            <p><strong>Resolution:</strong> ${allMetaData.PixelXDimension || 'N/A'} x ${allMetaData.PixelYDimension || 'N/A'}</p>
+                                        `;
+                                    }
+                                    resolve();
+                                });
+                            };
+                            reader.readAsDataURL(file);
+                        });
+                    } else if (extension === 'pdf') {
+                        // PDF metadata
+                        const arrayBuffer = await file.arrayBuffer();
+                        const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+                        const metadata = await pdf.getMetadata();
+                        output += `
+                            <p><strong>File Type:</strong> PDF</p>
+                            <p><strong>Page Count:</strong> ${pdf.numPages}</p>
+                            <p><strong>Author:</strong> ${metadata.info.Author || 'N/A'}</p>
+                            <p><strong>Title:</strong> ${metadata.info.Title || 'N/A'}</p>
+                            <p><strong>Creation Date:</strong> ${metadata.info.CreationDate || 'N/A'}</p>
+                        `;
+                    } else if (['mp4', 'mov'].includes(extension)) {
+                        // Video metadata (HTML5 video element)
+                        const url = URL.createObjectURL(file);
+                        const video = document.createElement('video');
+                        video.src = url;
+                        await new Promise((resolve, reject) => {
+                            video.onloadedmetadata = () => {
+                                output += `
+                                    <p><strong>File Type:</strong> Video</p>
+                                    <p><strong>Duration:</strong> ${video.duration ? Math.round(video.duration) + ' seconds' : 'N/A'}</p>
+                                    <p><strong>Resolution:</strong> ${video.videoWidth || 'N/A'} x ${video.videoHeight || 'N/A'}</p>
+                                `;
+                                URL.revokeObjectURL(url);
+                                resolve();
+                            };
+                            video.onerror = () => {
+                                output += '<p class="error">Error extracting video metadata.</p>';
+                                URL.revokeObjectURL(url);
+                                resolve();
+                            };
+                        });
+                    } else {
+                        output += '<p class="error">Unsupported file type.</p>';
+                    }
+                    output += '</div>';
+                }
+                resultDiv.innerHTML = output;
+            } catch (error) {
+                resultDiv.innerHTML = `<p class="error">Error: ${error.message}</p>`;
+            }
+        }
+    </script>
+</body>
+</html>
